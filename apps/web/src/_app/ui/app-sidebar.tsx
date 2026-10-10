@@ -5,11 +5,9 @@ import { BrandMark } from "@/_shared/ui/brand-mark";
 import { SidebarAuth, type AuthUser } from "@/_features/auth";
 
 export function AppSidebar({
-  googleAuthEnabled,
   user,
 }: {
-  googleAuthEnabled: boolean;
-  user: AuthUser | null;
+  user: AuthUser;
 }) {
   return (
     <aside className="app-sidebar">
@@ -37,7 +35,7 @@ export function AppSidebar({
           ))}
         </nav>
       </div>
-      <SidebarAuth googleEnabled={googleAuthEnabled} user={user} />
+      <SidebarAuth user={user} />
     </aside>
   );
 }

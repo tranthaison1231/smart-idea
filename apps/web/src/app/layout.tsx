@@ -1,11 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { AppShell } from "@/_app/ui/app-shell";
-import {
-  getCurrentAppUser,
-  isGoogleAuthConfigured,
-  toAuthUser,
-} from "@/_features/auth/index.server";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,24 +15,12 @@ export const viewport: Viewport = {
   themeColor: "#091321",
 };
 
-export const dynamic = "force-dynamic";
-
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
-  const googleAuthEnabled = isGoogleAuthConfigured();
-  const currentUser = googleAuthEnabled ? await getCurrentAppUser() : null;
-
   return (
     <html lang="vi">
-      <body>
-        <AppShell
-          googleAuthEnabled={googleAuthEnabled}
-          user={currentUser ? toAuthUser(currentUser) : null}
-        >
-          {children}
-        </AppShell>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

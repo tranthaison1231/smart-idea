@@ -27,6 +27,10 @@ pnpm db:migrate
 
 Google sign-in stays disabled until all required values are configured. The initial auth schema includes Better Auth's user/session/account tables and a separate `app_users` table linked to Google identities; future ideas can reference `app_users.id` as their owner.
 
+## Access control
+
+Workspace pages belong under `apps/web/src/app/(workspace)` and require a valid server-side session; unauthenticated users are redirected to `/login`. Keep login and Better Auth callback routes public. Future business API handlers must resolve the current app user on the server and scope data by `app_users.id`; never authorize using a user ID supplied by the client. The current starter has per-user ownership and no role matrix.
+
 ## Workspace
 
 ```text

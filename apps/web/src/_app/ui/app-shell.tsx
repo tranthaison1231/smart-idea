@@ -4,19 +4,17 @@ import type { AuthUser } from "@/_features/auth";
 
 export function AppShell({
   children,
-  googleAuthEnabled,
   user,
 }: {
   children: ReactNode;
-  googleAuthEnabled: boolean;
-  user: AuthUser | null;
+  user: AuthUser;
 }) {
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
         Bỏ qua điều hướng
       </a>
-      <AppSidebar googleAuthEnabled={googleAuthEnabled} user={user} />
+      <AppSidebar user={user} />
       <div className="app-main">{children}</div>
     </div>
   );
