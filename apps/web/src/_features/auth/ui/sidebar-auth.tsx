@@ -6,6 +6,8 @@ import { LogOut } from "lucide-react";
 
 import type { AuthUser } from "../model/auth";
 import { authClient } from "../client/auth-client";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 
 export function SidebarAuth({ user }: { user: AuthUser }) {
   const router = useRouter();
@@ -32,23 +34,25 @@ export function SidebarAuth({ user }: { user: AuthUser }) {
   return (
     <div className="sidebar-auth">
       <div className="sidebar-account">
-        <span className="sidebar-account-avatar" aria-hidden="true">
-          {user.initials}
-        </span>
+        <Avatar className="sidebar-account-avatar">
+          <AvatarFallback>{user.initials}</AvatarFallback>
+        </Avatar>
         <span className="sidebar-account-copy">
           <span className="sidebar-account-name">{user.name}</span>
           <span className="sidebar-account-email">{user.email}</span>
         </span>
-        <button
+        <Button
           aria-label="Đăng xuất"
           className="sidebar-auth-icon-button"
           disabled={pending}
           onClick={() => void signOut()}
           title="Đăng xuất"
           type="button"
+          size="icon"
+          variant="ghost"
         >
           <LogOut aria-hidden="true" size={17} />
-        </button>
+        </Button>
       </div>
       {error ? (
         <p className="sidebar-auth-error" role="alert">

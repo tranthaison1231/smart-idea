@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { BrandMark } from "@/_shared/ui/brand-mark";
 import { authClient } from "@/_features/auth/client/auth-client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export function LoginPage({ googleEnabled }: { googleEnabled: boolean }) {
   const [pending, setPending] = useState(false);
@@ -27,43 +29,49 @@ export function LoginPage({ googleEnabled }: { googleEnabled: boolean }) {
 
   return (
     <main className="login-page">
-      <section aria-labelledby="login-title" className="login-card">
-        <div className="login-brand">
-          <BrandMark />
-          <span className="brand-copy">
-            <span className="brand-name">Smart Idea</span>
-            <span className="brand-caption">A SPACE FOR WHAT&apos;S NEXT</span>
-          </span>
-        </div>
+      <Card aria-labelledby="login-title" className="login-card" role="region">
+        <CardHeader className="login-card-header">
+          <div className="login-brand">
+            <BrandMark />
+            <span className="brand-copy">
+              <span className="brand-name">Smart Idea</span>
+              <span className="brand-caption">A SPACE FOR WHAT&apos;S NEXT</span>
+            </span>
+          </div>
 
-        <p className="login-eyebrow">KHÔNG GIAN CỦA BẠN</p>
-        <h1 id="login-title">Đăng nhập để tiếp tục</h1>
-        <p className="login-description">
-          Đăng nhập để mở workspace và tiếp tục phát triển các ý tưởng của bạn.
-        </p>
-
-        <button
-          aria-busy={pending}
-          className="login-google-button"
-          disabled={!googleEnabled || pending}
-          onClick={() => void signIn()}
-          type="button"
-        >
-          <GoogleMark />
-          <span>{pending ? "Đang kết nối Google..." : "Đăng nhập với Google"}</span>
-        </button>
-
-        {!googleEnabled ? (
-          <p className="login-note">Google OAuth chưa được cấu hình cho môi trường này.</p>
-        ) : null}
-        {error ? (
-          <p className="login-error" role="alert">
-            {error}
+          <p className="login-eyebrow">KHÔNG GIAN CỦA BẠN</p>
+          <h1 id="login-title">Đăng nhập để tiếp tục</h1>
+          <p className="login-description">
+            Đăng nhập để mở workspace và tiếp tục phát triển các ý tưởng của bạn.
           </p>
-        ) : null}
+        </CardHeader>
 
-        <p className="login-security-note">Quyền truy cập được quản lý theo tài khoản của bạn.</p>
-      </section>
+        <CardContent className="login-card-content">
+          <Button
+            aria-busy={pending}
+            className="login-google-button"
+            disabled={!googleEnabled || pending}
+            onClick={() => void signIn()}
+            size="lg"
+            type="button"
+            variant="outline"
+          >
+            <GoogleMark />
+            <span>{pending ? "Đang kết nối Google..." : "Đăng nhập với Google"}</span>
+          </Button>
+
+          {!googleEnabled ? (
+            <p className="login-note">Google OAuth chưa được cấu hình cho môi trường này.</p>
+          ) : null}
+          {error ? (
+            <p className="login-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          <p className="login-security-note">Quyền truy cập được quản lý theo tài khoản của bạn.</p>
+        </CardContent>
+      </Card>
     </main>
   );
 }

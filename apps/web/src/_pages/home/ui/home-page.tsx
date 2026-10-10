@@ -1,4 +1,5 @@
 import { LayoutDashboard, Sparkles } from "lucide-react";
+import { Card } from "@/components/ui/card";
 
 export function HomePage() {
   return (
@@ -20,7 +21,7 @@ export function HomePage() {
         </span>
       </header>
 
-      <section className="empty-state" aria-labelledby="empty-state-title">
+      <Card className="empty-state" aria-labelledby="empty-state-title" role="region">
         <span className="empty-state-icon">
           <Sparkles aria-hidden="true" size={23} strokeWidth={1.7} />
         </span>
@@ -29,7 +30,7 @@ export function HomePage() {
         <p className="empty-state-description">
           Các trang và tính năng sẽ được bổ sung khi ý tưởng sản phẩm được xác định.
         </p>
-      </section>
+      </Card>
     </main>
   );
 }
