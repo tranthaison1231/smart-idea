@@ -1,0 +1,24 @@
+{
+  "name": "smart-idea",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @smart-idea/web dev",
+    "build": "pnpm --filter @smart-idea/web build",
+    "start": "pnpm --filter @smart-idea/web start",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "build:all": "turbo run build",
+    "dev:all": "turbo run dev"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11",
+    "turbo": "2.11.5"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@smart-idea/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": {
+      "types": "./src/index.server.ts",
+      "import": "./src/index.server.ts",
+      "require": "./src/index.server.ts"
+    },
+    "./schema/user": {
+      "types": "./src/schema/user.ts",
+      "import": "./src/schema/user.ts",
+      "require": "./src/schema/user.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.3",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3"
+  }
+}
