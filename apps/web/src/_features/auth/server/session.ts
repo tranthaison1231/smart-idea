@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { appUserRepository } from "@/_entities/user/index.server";
 import type { CurrentAppUser } from "@/_entities/user/index.server";
@@ -21,6 +22,12 @@ export const getCurrentAppUser = cache(async () => {
     name: session.user.name,
   });
 });
+
+export async function requireCurrentAppUser() {
+  const user = await getCurrentAppUser();
+  if (!user) redirect("/login");
+  return user;
+}
 
 export function toAuthUser(user: CurrentAppUser): AuthUser {
   const initials = user.displayName

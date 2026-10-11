@@ -1,12 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { AppShell } from "@/_app/ui/app-shell";
-import {
-  getCurrentAppUser,
-  isGoogleAuthConfigured,
-  toAuthUser,
-} from "@/_features/auth/index.server";
 import "./globals.css";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
   title: {
@@ -21,23 +17,14 @@ export const viewport: Viewport = {
   themeColor: "#091321",
 };
 
-export const dynamic = "force-dynamic";
-
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
-  const googleAuthEnabled = isGoogleAuthConfigured();
-  const currentUser = googleAuthEnabled ? await getCurrentAppUser() : null;
-
   return (
-    <html lang="vi">
+    <html lang="vi" className="dark">
       <body>
-        <AppShell
-          googleAuthEnabled={googleAuthEnabled}
-          user={currentUser ? toAuthUser(currentUser) : null}
-        >
-          {children}
-        </AppShell>
+        <TooltipProvider>{children}</TooltipProvider>
+        <Toaster position="top-right" richColors />
       </body>
     </html>
   );

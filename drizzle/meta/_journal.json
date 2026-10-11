@@ -8,6 +8,48 @@
       "when": 1791656113534,
       "tag": "0000_nosy_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791657311127,
+      "tag": "0001_acoustic_harpoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791658596435,
+      "tag": "0002_cloudy_talisman",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791681181558,
+      "tag": "0003_certain_husk",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791683277864,
+      "tag": "0004_wealthy_blacklash",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791683566161,
+      "tag": "0005_shiny_sphinx",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791689356200,
+      "tag": "0006_left_makkari",
+      "breakpoints": true
     }
   ]
 }

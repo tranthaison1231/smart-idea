@@ -1,6 +1,12 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import * as schema from "./schema/user";
+import * as ideaSchema from "./schema/idea";
+import * as aiProviderSchema from "./schema/ai-providers";
+import * as marketDiscoverySchema from "./schema/market-discovery";
+import * as openaiOAuthSchema from "./schema/openai-oauth";
+import * as userSchema from "./schema/user";
+
+const schema = { ...userSchema, ...ideaSchema, ...aiProviderSchema, ...openaiOAuthSchema, ...marketDiscoverySchema };
 
 function createDatabase(url: string) {
   const client = postgres(url, { max: 1, prepare: false });
@@ -18,3 +24,5 @@ export function getDb() {
   database = createDatabase(url);
   return database;
 }
+
+export type DatabaseTransaction = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
