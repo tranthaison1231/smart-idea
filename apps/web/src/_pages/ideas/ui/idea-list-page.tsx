@@ -85,7 +85,11 @@ export async function IdeaListPage() {
                     {idea.revenueModels.length > 0 ? (
                       <div className="idea-tag-list">
                         {idea.revenueModels.map((model) => (
-                          <Badge key={model} variant="outline">
+                          <Badge
+                            key={model}
+                            className="h-auto max-w-full whitespace-normal break-words py-1 text-left"
+                            variant="outline"
+                          >
                             {model}
                           </Badge>
                         ))}

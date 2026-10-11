@@ -817,6 +817,41 @@ a:focus-visible {
   margin-top: 26px;
 }
 
+.idea-detail-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 22px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.idea-detail-tab {
+  position: relative;
+  min-height: 40px;
+  flex: 0 0 auto;
+  border-radius: 8px 8px 0 0;
+  color: var(--muted-foreground);
+}
+
+.idea-detail-tab-active {
+  background: rgba(235, 80, 63, 0.1);
+  color: var(--primary-bright);
+}
+
+.idea-detail-tab-active::after {
+  position: absolute;
+  right: 10px;
+  bottom: -1px;
+  left: 10px;
+  height: 2px;
+  background: var(--primary-bright);
+  content: "";
+}
+
+.idea-detail-tab-empty {
+  margin-top: 20px;
+}
+
 .idea-detail-actions {
   display: flex;
   flex: 0 0 auto;
@@ -849,8 +884,14 @@ a:focus-visible {
 
 .idea-detail-heading h1 {
   max-width: 100%;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ideas-page-header .page-title-group {
+  min-width: 0;
+  flex: 1;
 }
 
 .idea-detail-fields {

@@ -14,6 +14,10 @@ const SEARCH_QUERIES = [
 export class TavilyConfigurationError extends Error {}
 export class TavilySearchError extends Error {}
 
+export function assertTavilyConfigured() {
+  if (!process.env.TAVILY_API_KEY?.trim()) throw new TavilyConfigurationError();
+}
+
 async function readBoundedBody(response: Response) {
   const reader = response.body?.getReader();
   if (!reader) throw new TavilySearchError();
@@ -110,12 +114,23 @@ async function search(query: string, apiKey: string): Promise<MarketSourceRecord
   });
 }
 
-export async function tavilySearch(): Promise<MarketSourceRecord[]> {
+export async function tavilySearch(queries?: readonly string[]): Promise<MarketSourceRecord[]> {
   const apiKey = process.env.TAVILY_API_KEY?.trim();
   if (!apiKey) throw new TavilyConfigurationError();
 
+  const selectedQueries = queries === undefined ? SEARCH_QUERIES : queries;
+  if (selectedQueries.length < 1 || selectedQueries.length > 3) throw new TavilySearchError();
+  const normalizedQueries = selectedQueries.map((query) => {
+    if (typeof query !== "string") throw new TavilySearchError();
+    const normalized = query.trim();
+    if (!normalized || normalized.length > 240) throw new TavilySearchError();
+    return normalized;
+  });
+  const uniqueQueries = [...new Set(normalizedQueries.map((query) => query.toLocaleLowerCase()))]
+    .map((normalized) => normalizedQueries.find((query) => query.toLocaleLowerCase() === normalized)!);
+
   const results: MarketSourceRecord[] = [];
-  for (const query of SEARCH_QUERIES) results.push(...await search(query, apiKey));
+  for (const query of uniqueQueries) results.push(...await search(query, apiKey));
   const seen = new Set<string>();
   return results.filter((source) => {
     if (seen.has(source.url)) return false;
