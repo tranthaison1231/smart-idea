@@ -1,12 +1,53 @@
 import { NextResponse } from "next/server";
 
-import { MarketDiscoveryError, marketDiscoveryService } from "@/_entities/market-discovery/index.server";
+import {
+  MarketDiscoveryError,
+  marketDiscoveryService,
+  type MarketDiscoveryProgress,
+} from "@/_entities/market-discovery/index.server";
 import { getCurrentAppUser } from "@/_features/auth/index.server";
 
 export const runtime = "nodejs";
 
 function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+function streamRefresh(userId: string, mode: "daily" | "manual") {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      let closed = false;
+      const write = (event: unknown) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        } catch {
+          closed = true;
+        }
+      };
+      const progress = (value: MarketDiscoveryProgress) => write({ type: "progress", ...value });
+
+      try {
+        const result = await marketDiscoveryService.refresh(userId, mode, progress);
+        write({ type: "complete", ...result });
+      } catch (error) {
+        write({
+          type: "error",
+          error: error instanceof MarketDiscoveryError ? error.code : "discovery_failed",
+        });
+      } finally {
+        if (!closed) controller.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
 
 async function readRequestJson(request: Request): Promise<unknown> {
@@ -54,13 +95,5 @@ export async function POST(request: Request) {
     return json({ error: "invalid_request" }, 400);
   }
 
-  try {
-    const result = await marketDiscoveryService.refresh(user.id, value.mode);
-    return json(result, result.state === "processing" ? 202 : 200);
-  } catch (error) {
-    if (error instanceof MarketDiscoveryError) {
-      return json({ error: error.code }, error.status);
-    }
-    return json({ error: "discovery_failed" }, 500);
-  }
+  return streamRefresh(user.id, value.mode);
 }

@@ -37,18 +37,19 @@ export function OpportunityDetailDialog({
             <p className="text-sm leading-6 text-muted-foreground">{opportunity.solution}</p>
           </section>
           <section className="grid gap-2">
-            <h3 className="text-sm font-semibold">Vì sao lúc này?</h3>
+            <h3 className="text-sm font-semibold">Căn cứ đề xuất</h3>
+            <p className="text-xs text-muted-foreground">Tóm tắt tín hiệu thị trường và cách cơ hội được đánh giá từ các nguồn bên dưới.</p>
             <p className="text-sm leading-6 text-muted-foreground">{opportunity.whyNow}</p>
+          </section>
+          <section className="grid gap-2">
+            <h3 className="text-sm font-semibold">Cách đánh giá độ tin cậy · {confidenceLabels[opportunity.confidence]}</h3>
+            <p className="text-sm leading-6 text-muted-foreground">{opportunity.confidenceRationale}</p>
           </section>
           <section className="grid gap-2">
             <h3 className="text-sm font-semibold">Mô hình doanh thu</h3>
             <div className="flex flex-wrap gap-2">
               {opportunity.revenueModels.map((model) => <Badge key={model} variant="outline">{model}</Badge>)}
             </div>
-          </section>
-          <section className="grid gap-2">
-            <h3 className="text-sm font-semibold">Độ tin cậy · {confidenceLabels[opportunity.confidence]}</h3>
-            <p className="text-sm leading-6 text-muted-foreground">{opportunity.confidenceRationale}</p>
           </section>
           <section className="grid gap-3">
             <h3 className="text-sm font-semibold">Nguồn tham khảo</h3>

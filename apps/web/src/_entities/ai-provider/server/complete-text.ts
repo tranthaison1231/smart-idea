@@ -39,6 +39,8 @@ interface CompleteTextInput {
   userPrompt: string;
   maxOutputTokens: number;
   responseFormat?: "json_object";
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
+  onProgress?: (event: "started" | "processing" | "output") => void;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -280,7 +282,12 @@ async function postConfiguredProvider(url: URL, apiKey: string, body: string) {
   });
 }
 
-async function postOAuthProvider(url: URL, accessToken: string, body: string) {
+async function postOAuthProvider(
+  url: URL,
+  accessToken: string,
+  body: string,
+  onProgress?: CompleteTextInput["onProgress"],
+) {
   const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
@@ -306,6 +313,7 @@ async function postOAuthProvider(url: URL, accessToken: string, body: string) {
     });
   }
   const requestId = safeDiagnosticField(response.headers.get("x-request-id") ?? response.headers.get("openai-request-id"));
+  onProgress?.("started");
   const reader = response.body?.getReader();
   if (!reader) {
     throw new AiCompletionError("provider_response_invalid", {
@@ -318,6 +326,10 @@ async function postOAuthProvider(url: URL, accessToken: string, body: string) {
   }
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let streamBuffer = "";
+  let emittedProcessing = false;
+  let emittedOutput = false;
+  const decoder = new TextDecoder();
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -334,6 +346,31 @@ async function postOAuthProvider(url: URL, accessToken: string, body: string) {
         });
       }
       chunks.push(value);
+      streamBuffer += decoder.decode(value, { stream: true });
+      const blocks = streamBuffer.split(/\r?\n\r?\n/);
+      streamBuffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const data = block
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+        if (!data || data === "[DONE]") continue;
+        try {
+          const event = asRecord(JSON.parse(data));
+          if (!event) continue;
+          if (!emittedProcessing && (event.type === "response.created" || event.type === "response.in_progress")) {
+            emittedProcessing = true;
+            onProgress?.("processing");
+          }
+          if (!emittedOutput && event.type === "response.output_text.delta") {
+            emittedOutput = true;
+            onProgress?.("output");
+          }
+        } catch {
+          // The complete response is parsed below; progress is best effort.
+        }
+      }
     }
   } catch (error) {
     if (error instanceof AiCompletionError) throw error;
@@ -399,9 +436,10 @@ export async function completeTextWithProvider(
       input: [{ role: "user", content: input.userPrompt }],
       store: false,
       stream: true,
+      ...(input.reasoningEffort ? { reasoning: { effort: input.reasoningEffort } } : {}),
       ...(input.responseFormat ? { text: { format: { type: input.responseFormat } } } : {}),
     });
-    const response = await postOAuthProvider(new URL(OPENAI_RESPONSES_URL), provider.accessToken, body);
+    const response = await postOAuthProvider(new URL(OPENAI_RESPONSES_URL), provider.accessToken, body, input.onProgress);
     if (response.status < 200 || response.status >= 300) {
       throw new AiCompletionError("provider_unavailable", {
         stage: "http",

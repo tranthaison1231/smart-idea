@@ -71,6 +71,13 @@
       "when": 1791701381297,
       "tag": "0009_cheerful_morbius",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791720483044,
+      "tag": "0010_curvy_earthquake",
+      "breakpoints": true
     }
   ]
 }

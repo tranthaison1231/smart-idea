@@ -10,6 +10,10 @@ import {
   marketDiscoverySnapshots,
 } from "@smart-idea/database/server";
 import type { MarketDiscoveryPreferences } from "../model/market-discovery-preferences";
+import {
+  normalizeMarketDiscoveryTrace,
+  type MarketDiscoveryTrace,
+} from "../model/market-discovery-trace";
 
 export const DISCOVERY_QUERY_VERSION = "vn-product-opportunities-v1";
 const SNAPSHOT_LEASE_MS = 2 * 60 * 1000;
@@ -259,7 +263,7 @@ export const marketDiscoveryRepository = {
     confidence: string;
     confidenceRationale: string;
     sourceIds: string[];
-  }>) {
+  }>, trace: MarketDiscoveryTrace) {
     const db = getDb();
     await db.transaction(async (tx) => {
       await tx.insert(marketDiscoveryOpportunities).values(
@@ -267,7 +271,7 @@ export const marketDiscoveryRepository = {
       );
       const [updated] = await tx
         .update(marketDiscoveryRuns)
-        .set({ state: "ready", errorCode: null, leaseExpiresAt: null, updatedAt: new Date() })
+        .set({ state: "ready", errorCode: null, trace: trace as unknown as Record<string, unknown>, leaseExpiresAt: null, updatedAt: new Date() })
         .where(and(
           eq(marketDiscoveryRuns.id, runId),
           eq(marketDiscoveryRuns.ownerId, ownerId),
@@ -278,10 +282,10 @@ export const marketDiscoveryRepository = {
     });
   },
 
-  async failRun(runId: string, ownerId: string, errorCode: string) {
+  async failRun(runId: string, ownerId: string, errorCode: string, trace?: MarketDiscoveryTrace) {
     await getDb()
       .update(marketDiscoveryRuns)
-      .set({ state: "failed", errorCode, leaseExpiresAt: null, updatedAt: new Date() })
+      .set({ state: "failed", errorCode, ...(trace ? { trace: trace as unknown as Record<string, unknown> } : {}), leaseExpiresAt: null, updatedAt: new Date() })
       .where(and(
         eq(marketDiscoveryRuns.id, runId),
         eq(marketDiscoveryRuns.ownerId, ownerId),
@@ -324,8 +328,33 @@ export const marketDiscoveryRepository = {
       stale: run.stale,
       providerType: run.providerType,
       providerModel: run.providerModel,
+      traceAvailable: Boolean(run.trace),
       sources: snapshot.sources,
       opportunities: opportunitiesByRun.get(run.id) ?? [],
     }));
+  },
+
+  async findTrace(ownerId: string, runId: string) {
+    const [row] = await getDb()
+      .select({ run: marketDiscoveryRuns, snapshot: marketDiscoverySnapshots })
+      .from(marketDiscoveryRuns)
+      .innerJoin(marketDiscoverySnapshots, eq(marketDiscoveryRuns.snapshotId, marketDiscoverySnapshots.id))
+      .where(and(
+        eq(marketDiscoveryRuns.id, runId),
+        eq(marketDiscoveryRuns.ownerId, ownerId),
+      ))
+      .limit(1);
+    if (!row || !row.run.trace) return null;
+
+    const opportunities = await getDb()
+      .select()
+      .from(marketDiscoveryOpportunities)
+      .where(and(
+        eq(marketDiscoveryOpportunities.runId, runId),
+        eq(marketDiscoveryOpportunities.ownerId, ownerId),
+      ));
+    const normalized = normalizeMarketDiscoveryTrace(row.run.trace, runId, row.snapshot.sources, opportunities);
+    const { spans, ...trace } = normalized.trace;
+    return { trace, spans, sources: row.snapshot.sources, opportunities };
   },
 };

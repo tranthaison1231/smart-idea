@@ -29,6 +29,7 @@ export interface MarketDiscoveryRunView {
   stale: boolean;
   providerType: string;
   providerModel: string;
+  traceAvailable?: boolean;
   opportunities: MarketDiscoveryOpportunity[];
 }
 

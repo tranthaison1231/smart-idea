@@ -14,6 +14,13 @@ const SEARCH_QUERIES = [
 export class TavilyConfigurationError extends Error {}
 export class TavilySearchError extends Error {}
 
+export type TavilySearchCall = {
+  query: string;
+  status: "completed" | "failed";
+  durationMs: number;
+  resultCount?: number;
+};
+
 export function assertTavilyConfigured() {
   if (!process.env.TAVILY_API_KEY?.trim()) throw new TavilyConfigurationError();
 }
@@ -114,7 +121,10 @@ async function search(query: string, apiKey: string): Promise<MarketSourceRecord
   });
 }
 
-export async function tavilySearch(queries?: readonly string[]): Promise<MarketSourceRecord[]> {
+export async function tavilySearch(
+  queries?: readonly string[],
+  onCall?: (call: TavilySearchCall) => void,
+): Promise<MarketSourceRecord[]> {
   const apiKey = process.env.TAVILY_API_KEY?.trim();
   if (!apiKey) throw new TavilyConfigurationError();
 
@@ -130,7 +140,17 @@ export async function tavilySearch(queries?: readonly string[]): Promise<MarketS
     .map((normalized) => normalizedQueries.find((query) => query.toLocaleLowerCase() === normalized)!);
 
   const results: MarketSourceRecord[] = [];
-  for (const query of uniqueQueries) results.push(...await search(query, apiKey));
+  for (const query of uniqueQueries) {
+    const startedAt = Date.now();
+    try {
+      const found = await search(query, apiKey);
+      results.push(...found);
+      onCall?.({ query, status: "completed", durationMs: Date.now() - startedAt, resultCount: found.length });
+    } catch (error) {
+      onCall?.({ query, status: "failed", durationMs: Date.now() - startedAt });
+      throw error;
+    }
+  }
   const seen = new Set<string>();
   return results.filter((source) => {
     if (seen.has(source.url)) return false;

@@ -79,6 +79,7 @@ export const marketDiscoveryRuns = pgTable(
     state: text("state").notNull(),
     stale: boolean("stale").notNull().default(false),
     errorCode: text("error_code"),
+    trace: jsonb("trace").$type<Record<string, unknown> | null>(),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

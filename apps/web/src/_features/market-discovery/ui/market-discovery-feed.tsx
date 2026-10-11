@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   Check,
   ExternalLink,
+  History,
   LoaderCircle,
   RefreshCw,
   SlidersHorizontal,
@@ -40,6 +41,12 @@ const MarketDiscoverySettingsDialog = lazy(() =>
   })),
 );
 
+const MarketDiscoveryTraceDialog = lazy(() =>
+  import("./market-discovery-trace-dialog").then((module) => ({
+    default: module.MarketDiscoveryTraceDialog,
+  })),
+);
+
 const emptyFeed: MarketDiscoveryFeedData = { history: [] };
 const confidenceLabels = { low: "Độ tin cậy thấp", medium: "Độ tin cậy trung bình", high: "Độ tin cậy cao" } as const;
 const errorMessages: Record<string, string> = {
@@ -66,6 +73,62 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type RefreshProgress = {
+  stage: "provider" | "sources" | "synthesis" | "saving" | "complete";
+  progress: number;
+  message: string;
+};
+
+type RefreshResult =
+  | { state: "processing" }
+  | { state: "ready"; feed: MarketDiscoveryFeedData };
+
+async function readRefreshStream(
+  response: Response,
+  onProgress: (progress: RefreshProgress) => void,
+): Promise<RefreshResult> {
+  if (!response.body) throw new Error("feed_load_failed");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: RefreshResult | null = null;
+
+  const consume = (line: string) => {
+    if (!line.trim()) return;
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!isRecord(event) || typeof event.type !== "string") return;
+    if (event.type === "progress" &&
+      (event.stage === "provider" || event.stage === "sources" || event.stage === "synthesis" || event.stage === "saving" || event.stage === "complete") &&
+      typeof event.progress === "number" && Number.isFinite(event.progress) && typeof event.message === "string") {
+      onProgress({ stage: event.stage, progress: Math.max(0, Math.min(100, event.progress)), message: event.message });
+    } else if (event.type === "complete" && event.state === "processing") {
+      result = { state: "processing" };
+    } else if (event.type === "complete" && event.state === "ready" && isMarketDiscoveryFeed(event.feed)) {
+      result = { state: "ready", feed: event.feed };
+    } else if (event.type === "error" && typeof event.error === "string") {
+      throw new Error(event.error);
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    lines.forEach(consume);
+  }
+  buffer += decoder.decode();
+  consume(buffer);
+  if (!result) throw new Error("feed_load_failed");
+  return result;
+}
+
 function opportunityError(error: unknown) {
   if (error instanceof Error && error.message in errorMessages) return errorMessages[error.message];
   return "Có lỗi khi kết nối dịch vụ. Hãy thử lại.";
@@ -80,7 +143,7 @@ function isMarketDiscoveryFeed(value: unknown): value is MarketDiscoveryFeedData
     if (!isRecord(run) || typeof run.id !== "string" || typeof run.marketDate !== "string" ||
       typeof run.createdAt !== "string" || (run.fetchedAt !== null && typeof run.fetchedAt !== "string") ||
       typeof run.stale !== "boolean" || typeof run.providerType !== "string" ||
-      typeof run.providerModel !== "string" || !Array.isArray(run.opportunities)) return false;
+      typeof run.providerModel !== "string" || (run.traceAvailable !== undefined && typeof run.traceAvailable !== "boolean") || !Array.isArray(run.opportunities)) return false;
 
     return run.opportunities.every((opportunity) => {
       if (!isRecord(opportunity) || typeof opportunity.id !== "string" ||
@@ -219,11 +282,17 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
   const [feed, setFeed] = useState<MarketDiscoveryFeedData>(emptyFeed);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState<RefreshProgress>({
+    stage: "provider",
+    progress: 0,
+    message: "Đang chuẩn bị khám phá...",
+  });
+  const [progressLog, setProgressLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<MarketDiscoveryOpportunity | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [traceRunId, setTraceRunId] = useState<string | null>(null);
   const storageKey = `smart-idea:market-discovery:${userId}`;
 
   const loadFeed = useCallback(async () => {
@@ -236,10 +305,17 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
     cacheFeed(storageKey, body);
   }, [storageKey]);
 
+  const handleProgress = useCallback((next: RefreshProgress) => {
+    setProgress(next);
+    setProgressLog((current) => current.at(-1) === next.message ? current : [...current, next.message].slice(-4));
+  }, []);
+
   const refresh = useCallback(async (announce = false) => {
     setRefreshing(true);
-    setProcessing(false);
     setError(null);
+    const initialProgress = { stage: "provider" as const, progress: 5, message: "Đang chuẩn bị khám phá..." };
+    setProgress(initialProgress);
+    setProgressLog([initialProgress.message]);
     try {
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const response = await fetch("/api/market-discovery/refresh", {
@@ -248,20 +324,16 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
           body: JSON.stringify({ mode: "manual" }),
           cache: "no-store",
         });
-        const body = await response.json().catch(() => null);
         if (!response.ok) {
+          const body = await response.json().catch(() => null);
           const code = typeof body?.error === "string" ? body.error : "discovery_failed";
           setError(code);
           return;
         }
-        if (response.status === 202 || body?.state === "processing") {
-          setProcessing(true);
+        const body = await readRefreshStream(response, handleProgress);
+        if (body.state === "processing") {
           await wait(1500);
           continue;
-        }
-        if (!isMarketDiscoveryFeed(body?.feed)) {
-          setError("feed_load_failed");
-          return;
         }
         setFeed(body.feed);
         const cachedLocally = cacheFeed(storageKey, body.feed);
@@ -280,13 +352,12 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
         return;
       }
       setError("processing_timeout");
-    } catch {
-      setError("feed_load_failed");
+    } catch (error) {
+      setError(error instanceof Error && error.message in errorMessages ? error.message : "feed_load_failed");
     } finally {
       setRefreshing(false);
-      setProcessing(false);
     }
-  }, [storageKey]);
+  }, [handleProgress, storageKey]);
 
   useEffect(() => {
     let active = true;
@@ -350,10 +421,24 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
         </div>
       </div>
 
-      {processing ? (
-        <div aria-live="polite" className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          <LoaderCircle aria-hidden="true" className="animate-spin" size={16} />
-          Đang lấy nguồn và tổng hợp cơ hội. Có thể mất khoảng một phút.
+      {refreshing ? (
+        <div aria-live="polite" className="grid gap-2 rounded-lg border border-border/70 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-2">
+              <LoaderCircle aria-hidden="true" className="shrink-0 animate-spin" size={16} />
+              <span className="truncate">{progress.message}</span>
+            </span>
+            <span className="shrink-0 text-xs tabular-nums">{progress.progress}%</span>
+          </div>
+          <div aria-label="Tiến trình khám phá" aria-valuemax={100} aria-valuemin={0} aria-valuenow={progress.progress} className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar">
+            <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${progress.progress}%` }} />
+          </div>
+          <ol aria-label="Nhật ký tiến trình" className="grid gap-1 text-xs text-muted-foreground">
+            {progressLog.map((message, index) => <li className="flex items-center gap-1.5" key={`${index}-${message}`}><Check aria-hidden="true" className="text-primary" size={13} />{message}</li>)}
+          </ol>
+          {progress.stage === "synthesis" ? (
+            <p className="text-xs text-muted-foreground">AI đang tổng hợp lập luận từ vấn đề, khách hàng và các nguồn dẫn chứng.</p>
+          ) : null}
         </div>
       ) : null}
       {error ? (
@@ -387,9 +472,14 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
           {history.map((run) => (
             <section aria-labelledby={`discovery-run-${run.id}`} className="grid gap-3" key={run.id}>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-semibold" id={`discovery-run-${run.id}`}>Khám phá ngày {formatDate(run.marketDate)}</h2>
-                {run.stale ? <Badge variant="outline">Nguồn cũ · {formatDate(run.marketDate)}</Badge> : <Badge variant="secondary">{run.opportunities.length} cơ hội</Badge>}
-                <span className="text-xs text-muted-foreground">{run.fetchedAt ? `Nguồn cập nhật ${new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(run.fetchedAt))}` : ""}</span>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-semibold" id={`discovery-run-${run.id}`}>Khám phá ngày {formatDate(run.marketDate)}</h2>
+                  {run.stale ? <Badge variant="outline">Nguồn cũ · {formatDate(run.marketDate)}</Badge> : <Badge variant="secondary">{run.opportunities.length} cơ hội</Badge>}
+                  <span className="text-xs text-muted-foreground">{run.fetchedAt ? `Nguồn cập nhật ${new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(run.fetchedAt))}` : ""}</span>
+                </div>
+                <Button aria-label="Xem trace của lần khám phá" className="ml-auto" onClick={() => setTraceRunId(run.id)} size="icon" title="Xem trace" variant="ghost">
+                  <History aria-hidden="true" size={16} />
+                </Button>
               </div>
               <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
                 {run.opportunities.map((opportunity) => (
@@ -463,6 +553,22 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
           </Dialog>
         )}>
           <MarketDiscoverySettingsDialog onOpenChange={setSettingsOpen} open />
+        </Suspense>
+      ) : null}
+
+      {traceRunId ? (
+        <Suspense fallback={(
+          <Dialog onOpenChange={(open) => { if (!open) setTraceRunId(null); }} open>
+            <DialogContent aria-busy="true" className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Trace khám phá</DialogTitle>
+                <DialogDescription>Đang tải trace...</DialogDescription>
+              </DialogHeader>
+              <Skeleton className="h-40 w-full" />
+            </DialogContent>
+          </Dialog>
+        )}>
+          <MarketDiscoveryTraceDialog key={traceRunId} onOpenChange={(open) => { if (!open) setTraceRunId(null); }} open runId={traceRunId} />
         </Suspense>
       ) : null}
     </section>

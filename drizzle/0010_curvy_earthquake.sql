@@ -1,0 +1,1 @@
+ALTER TABLE "market_discovery_runs" ADD COLUMN "trace" jsonb;

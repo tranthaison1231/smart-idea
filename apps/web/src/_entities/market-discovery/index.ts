@@ -11,3 +11,9 @@ export {
   parseMarketDiscoveryPreferences,
 } from "./model/market-discovery-preferences";
 export type { MarketDiscoveryPreferences } from "./model/market-discovery-preferences";
+export type {
+  MarketDiscoveryTrace,
+  MarketDiscoveryTraceSpan,
+  MarketDiscoveryTraceCallType,
+} from "./model/market-discovery-trace";
+export { buildMarketDiscoveryTracePayload, normalizeMarketDiscoveryTrace, preview } from "./model/market-discovery-trace";
