@@ -10,6 +10,7 @@ import {
   marketDiscoverySnapshots,
 } from "@smart-idea/database/server";
 import type { MarketDiscoveryPreferences } from "../model/market-discovery-preferences";
+import type { OpportunityDraft } from "../model/market-discovery";
 import {
   normalizeMarketDiscoveryTrace,
   type MarketDiscoveryTrace,
@@ -154,15 +155,6 @@ export const marketDiscoveryRepository = {
     });
   },
 
-  async completeSnapshot(id: string, sources: MarketDiscoverySnapshot["sources"]) {
-    const [snapshot] = await getDb()
-      .update(marketDiscoverySnapshots)
-      .set({ state: "ready", sources, fetchedAt: new Date(), leaseExpiresAt: null, errorCode: null })
-      .where(and(eq(marketDiscoverySnapshots.id, id), eq(marketDiscoverySnapshots.state, "pending")))
-      .returning();
-    return snapshot ?? null;
-  },
-
   async failSnapshot(id: string, errorCode = "source_search_failed") {
     await getDb()
       .update(marketDiscoverySnapshots)
@@ -253,19 +245,26 @@ export const marketDiscoveryRepository = {
     return run ?? null;
   },
 
-  async completeRun(runId: string, ownerId: string, opportunities: Array<{
-    productName: string;
-    problem: string;
-    targetCustomer: string;
-    solution: string;
-    whyNow: string;
-    revenueModels: string[];
-    confidence: string;
-    confidenceRationale: string;
-    sourceIds: string[];
-  }>, trace: MarketDiscoveryTrace) {
+  async completeAgentRun(
+    runId: string,
+    ownerId: string,
+    snapshotId: string,
+    sources: MarketDiscoverySnapshot["sources"],
+    opportunities: OpportunityDraft[],
+    trace: MarketDiscoveryTrace,
+  ) {
     const db = getDb();
     await db.transaction(async (tx) => {
+      const [snapshot] = await tx
+        .update(marketDiscoverySnapshots)
+        .set({ state: "ready", sources, fetchedAt: new Date(), leaseExpiresAt: null, errorCode: null })
+        .where(and(
+          eq(marketDiscoverySnapshots.id, snapshotId),
+          or(eq(marketDiscoverySnapshots.state, "pending"), eq(marketDiscoverySnapshots.state, "ready")),
+        ))
+        .returning({ id: marketDiscoverySnapshots.id });
+      if (!snapshot) throw new Error("Market discovery snapshot is unavailable");
+
       await tx.insert(marketDiscoveryOpportunities).values(
         opportunities.map((opportunity) => ({ ...opportunity, runId, ownerId })),
       );

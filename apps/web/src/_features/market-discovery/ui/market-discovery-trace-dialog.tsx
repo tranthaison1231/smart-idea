@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, CircleCheck, CircleX, Copy, Download, ExternalLink, History, LoaderCircle } from "lucide-react";
 
-import type { MarketDiscoveryTrace, MarketDiscoveryTraceSpan } from "@/_entities/market-discovery";
+import type { MarketDiscoveryTrace, MarketDiscoveryTraceEvent, MarketDiscoveryTraceSpan } from "@/_entities/market-discovery";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -68,6 +68,16 @@ function spanTitle(span: MarketDiscoveryTraceSpan) {
   return span.name;
 }
 
+function metadataText(span: MarketDiscoveryTraceSpan, key: string) {
+  const value = span.metadata?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function metadataList(span: MarketDiscoveryTraceSpan, key: string) {
+  const value = span.metadata?.[key];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
 function providerFromTrace(trace: TraceRoot) {
   const provider = trace.metadata.provider;
   return isRecord(provider) ? provider : null;
@@ -114,15 +124,39 @@ function SpanRow({ span }: { span: MarketDiscoveryTraceSpan }) {
       <div className="mt-3 grid gap-3 border-t border-border/60 pt-3 text-xs">
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
           <span>{formatTime(span.start_time)}</span>
+          {typeof span.metadata?.turn_index === "number" ? <span>Lượt LLM: {span.metadata.turn_index}</span> : null}
           {span.provider ? <span>Provider: {span.provider}</span> : null}
           {span.model ? <span>Model: {span.model}</span> : null}
           {span.tool_name ? <span>Tool: {span.tool_name}</span> : null}
           <span>ID: {span.id}</span>
         </div>
+        {metadataList(span, "requested_tools").length ? <div className="flex flex-wrap items-center gap-1.5"><span className="text-muted-foreground">Tool được yêu cầu:</span>{metadataList(span, "requested_tools").map((toolName) => <Badge key={toolName} variant="outline">{toolName}</Badge>)}</div> : null}
+        {metadataText(span, "decision_summary") ? <div className="rounded-md border border-primary/20 bg-primary/5 p-3"><p className="font-medium text-primary">Quyết định quan sát được</p><p className="mt-1 text-muted-foreground">{metadataText(span, "decision_summary")}</p></div> : null}
+        {metadataText(span, "reasoning_summary") ? <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3"><p className="font-medium text-amber-200">Tóm tắt suy luận từ provider</p><p className="mt-1 text-muted-foreground">{metadataText(span, "reasoning_summary")}</p></div> : null}
         {span.input_preview ? <PreviewBlock label="Input" value={span.input_preview} /> : null}
         {span.output_preview ? <PreviewBlock label="Output" value={span.output_preview} /> : null}
         {span.error ? <p className="text-destructive">Lỗi: {span.error}</p> : null}
         {span.metadata && Object.keys(span.metadata).length ? <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-muted-foreground">{JSON.stringify(span.metadata, null, 2)}</pre> : null}
+      </div>
+    </details>
+  );
+}
+
+function EventRow({ event }: { event: MarketDiscoveryTraceEvent }) {
+  return (
+    <details className="rounded-lg border border-border/70 bg-muted/5 p-3">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2">
+        <Badge variant="outline" className="shrink-0 text-xs">event</Badge>
+        <span className="min-w-0 flex-1 truncate font-medium">{event.name}</span>
+        <span className="text-xs text-muted-foreground">{event.progress}%</span>
+        <span className="text-xs text-muted-foreground">{formatDuration(event.duration_ms)}</span>
+        <StatusBadge status={event.status} />
+      </summary>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+        <span>Giai đoạn: {event.stage}</span>
+        <span>{formatTime(event.start_time)}</span>
+        <span>ID: {event.id}</span>
+        {event.metadata && Object.keys(event.metadata).length ? <pre className="basis-full max-h-40 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(event.metadata, null, 2)}</pre> : null}
       </div>
     </details>
   );
@@ -164,7 +198,7 @@ export function MarketDiscoveryTraceDialog({
 
   const spans = useMemo(() => data?.spans ?? [], [data]);
   const nonEventSpans = spans.filter((span) => span.span_type !== "event");
-  const eventSpans = spans.filter((span) => span.span_type === "event");
+  const events = useMemo(() => data?.trace.events ?? [], [data]);
   const provider = data ? providerFromTrace(data.trace) : null;
   const prompt = data ? applicationPrompt(data.trace) : null;
 
@@ -225,16 +259,16 @@ export function MarketDiscoveryTraceDialog({
                 <div><p className="text-xs text-muted-foreground">Số cơ hội</p><p>{data.opportunities.length}</p></div>
                 <div><p className="text-xs text-muted-foreground">Spans</p><p>{nonEventSpans.length}</p></div>
                 <div><p className="text-xs text-muted-foreground">LLM / Tool</p><p>{data.trace.llm_call_count} / {data.trace.tool_call_count}</p></div>
-                <div><p className="text-xs text-muted-foreground">Events</p><p>{eventSpans.length}</p></div>
+                <div><p className="text-xs text-muted-foreground">Events</p><p>{events.length}</p></div>
                 {data.trace.error ? <div className="sm:col-span-4"><p className="text-xs text-muted-foreground">Lỗi</p><p className="text-destructive">{data.trace.error}</p></div> : null}
               </div>
 
               <nav aria-label="Các phần trace" className="flex flex-wrap gap-1 border-b border-border/70 pb-1">
-                {tabs.map((item) => <Button aria-current={tab === item.key ? "page" : undefined} className={tab === item.key ? "border-primary bg-primary/10 text-primary" : ""} key={item.key} onClick={() => setTab(item.key)} size="sm" variant="ghost">{item.label}{item.key === "spans" ? ` (${nonEventSpans.length})` : item.key === "events" ? ` (${eventSpans.length})` : item.key === "sources" ? ` (${data.sources.length})` : ""}</Button>)}
+                {tabs.map((item) => <Button aria-current={tab === item.key ? "page" : undefined} className={tab === item.key ? "border-primary bg-primary/10 text-primary" : ""} key={item.key} onClick={() => setTab(item.key)} size="sm" variant="ghost">{item.label}{item.key === "spans" ? ` (${nonEventSpans.length})` : item.key === "events" ? ` (${events.length})` : item.key === "sources" ? ` (${data.sources.length})` : ""}</Button>)}
               </nav>
 
               {tab === "overview" ? <section className="grid gap-3">
-                <div className="grid gap-2 rounded-lg border border-border/70 p-4"><h3 className="text-sm font-semibold">Luồng xử lý</h3><p className="text-sm leading-6 text-muted-foreground">{spans.filter((span) => span.span_type === "event").map((span) => span.name).join(" → ") || "Chưa có event"}</p><div className="grid gap-2 sm:grid-cols-3">{(["agent", "llm_call", "tool_call"] as const).map((type) => <div className="rounded-md border border-border/60 bg-muted/10 p-3" key={type}><p className="text-xs text-muted-foreground">{type}</p><p className="mt-1 text-lg font-semibold">{spans.filter((span) => span.span_type === type).length}</p></div>)}</div></div>
+                <div className="grid gap-2 rounded-lg border border-border/70 p-4"><h3 className="text-sm font-semibold">Luồng xử lý</h3><p className="text-sm leading-6 text-muted-foreground">{events.map((event) => event.name).join(" → ") || "Chưa có event"}</p><div className="grid gap-2 sm:grid-cols-3">{(["agent", "llm_call", "tool_call"] as const).map((type) => <div className="rounded-md border border-border/60 bg-muted/10 p-3" key={type}><p className="text-xs text-muted-foreground">{type}</p><p className="mt-1 text-lg font-semibold">{spans.filter((span) => span.span_type === type).length}</p></div>)}</div></div>
                 {data.trace.error ? <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{data.trace.error}</p> : null}
               </section> : null}
 
@@ -242,7 +276,7 @@ export function MarketDiscoveryTraceDialog({
 
               {tab === "spans" ? <section className="grid gap-2"><p className="text-xs text-muted-foreground">Mỗi dòng là một span xử lý thật: agent, tool_call hoặc llm_call.</p>{nonEventSpans.map((span) => <SpanRow key={span.id} span={span} />)}</section> : null}
 
-              {tab === "events" ? <section className="grid gap-2"><p className="text-xs text-muted-foreground">Các mốc trạng thái của pipeline được hiển thị riêng để dễ theo dõi.</p>{eventSpans.map((span) => <SpanRow key={span.id} span={span} />)}</section> : null}
+              {tab === "events" ? <section className="grid gap-2"><p className="text-xs text-muted-foreground">Các mốc trạng thái của pipeline được hiển thị riêng; LLM và tool call nằm trong tab Spans.</p>{events.map((event) => <EventRow event={event} key={event.id} />)}</section> : null}
 
               {tab === "sources" ? <section className="grid gap-2"><p className="text-xs text-muted-foreground">Danh sách nguồn công khai được dùng để tổng hợp cơ hội.</p>{data.sources.map((source) => <a className="inline-flex min-w-0 items-center gap-2 rounded-md border border-border/60 p-3 text-sm text-muted-foreground hover:text-foreground" href={source.url} key={source.id} rel="noreferrer" target="_blank"><span className="min-w-0 flex-1"><span className="block truncate font-medium text-foreground">{source.title}</span><span className="block truncate text-xs">{source.domain}</span></span><ExternalLink aria-hidden="true" className="shrink-0" size={14} /></a>)}</section> : null}
             </div>

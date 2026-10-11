@@ -21,6 +21,7 @@ export interface MarketSourceRecord {
   domain: string;
   snippet: string;
   publishedAt: string | null;
+  fetchedAt?: string;
 }
 
 export const marketDiscoveryPreferences = pgTable("market_discovery_preferences", {

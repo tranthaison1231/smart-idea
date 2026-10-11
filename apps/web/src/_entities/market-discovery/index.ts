@@ -13,6 +13,7 @@ export {
 export type { MarketDiscoveryPreferences } from "./model/market-discovery-preferences";
 export type {
   MarketDiscoveryTrace,
+  MarketDiscoveryTraceEvent,
   MarketDiscoveryTraceSpan,
   MarketDiscoveryTraceCallType,
 } from "./model/market-discovery-trace";
