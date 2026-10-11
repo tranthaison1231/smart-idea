@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const providerTypes = [
   ["oauth", "ChatGPT Subscription (OAuth)"],
@@ -487,9 +488,24 @@ export function AiProviderSettingsPanel() {
             </div>
           ) : null}
           {loading ? (
-            <div aria-busy="true" className="flex items-center gap-2 px-2 py-8 text-sm text-muted-foreground">
-              <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-              Đang tải provider...
+            <div aria-busy="true" className="space-y-3" role="status">
+              <span className="sr-only">Đang tải danh sách provider...</span>
+              {Array.from({ length: 2 }, (_, index) => (
+                <Card aria-hidden="true" className="gap-0 py-0" key={index}>
+                  <CardHeader className="gap-3 p-4 sm:flex-row sm:items-center">
+                    <Skeleton className="size-10 shrink-0 rounded-xl" />
+                    <div className="grid flex-1 gap-2">
+                      <Skeleton className="h-4 w-2/5" />
+                      <Skeleton className="h-3 w-3/5" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-5 w-9 rounded-full" />
+                      <Skeleton className="size-8 rounded-md" />
+                      <Skeleton className="size-8 rounded-md" />
+                    </div>
+                  </CardHeader>
+                </Card>
+              ))}
             </div>
           ) : visibleProviders.length ? (
             visibleProviders.map((provider) => (
@@ -516,16 +532,22 @@ export function AiProviderSettingsPanel() {
                           ? "Key đã lưu"
                           : "Chưa có key"}
                     </span>
-                    <Switch
-                      aria-label={`${provider.isEnabled ? "Tắt" : "Bật"} ${provider.name}`}
-                      checked={provider.isEnabled}
-                      disabled={
-                        pendingProviderId !== null ||
-                        (!credentialsReady && !provider.isEnabled) ||
-                        (provider.providerType !== "oauth" && !provider.apiKeyConfigured && !provider.isEnabled)
-                      }
-                      onCheckedChange={(checked) => void toggleProvider(provider, checked)}
-                    />
+                    <span className="flex items-center gap-2">
+                      {pendingProviderId === provider.id ? (
+                        <LoaderCircle aria-hidden="true" className="size-4 animate-spin text-muted-foreground" />
+                      ) : null}
+                      <Switch
+                        aria-busy={pendingProviderId === provider.id}
+                        aria-label={`${provider.isEnabled ? "Tắt" : "Bật"} ${provider.name}`}
+                        checked={provider.isEnabled}
+                        disabled={
+                          pendingProviderId !== null ||
+                          (!credentialsReady && !provider.isEnabled) ||
+                          (provider.providerType !== "oauth" && !provider.apiKeyConfigured && !provider.isEnabled)
+                        }
+                        onCheckedChange={(checked) => void toggleProvider(provider, checked)}
+                      />
+                    </span>
                     <Button
                       aria-label={`Sửa ${provider.name}`}
                       onClick={() => editProvider(provider)}

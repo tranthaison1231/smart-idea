@@ -1,8 +1,8 @@
 "use client";
 
+import { lazy, Suspense } from "react";
 import { Bot, Sparkles } from "lucide-react";
 
-import { AiProviderSettingsPanel } from "./ai-provider-settings-panel";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,48 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const AiProviderSettingsPanel = lazy(() =>
+  import("./ai-provider-settings-panel").then((module) => ({
+    default: module.AiProviderSettingsPanel,
+  })),
+);
+
+function ProviderSettingsSkeleton() {
+  return (
+    <section aria-busy="true" className="space-y-5" role="status">
+      <span className="sr-only">Đang tải cài đặt provider AI...</span>
+      <div aria-hidden="true" className="flex items-center justify-between gap-4">
+        <div className="grid gap-2">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-56 max-w-[50vw]" />
+        </div>
+        <Skeleton className="h-9 w-32" />
+      </div>
+      <Card aria-hidden="true" className="gap-3">
+        <CardHeader className="gap-2">
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-4 w-64 max-w-[60vw]" />
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {Array.from({ length: 3 }, (_, index) => (
+            <div className="flex items-center gap-3 rounded-lg border p-4" key={index}>
+              <Skeleton className="size-10 shrink-0 rounded-xl" />
+              <div className="grid flex-1 gap-2">
+                <Skeleton className="h-4 w-2/5" />
+                <Skeleton className="h-3 w-3/5" />
+              </div>
+              <Skeleton className="size-8 rounded-md" />
+              <Skeleton className="size-8 rounded-md" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
 
 export function SettingsDialog({
   open,
@@ -53,7 +95,11 @@ export function SettingsDialog({
                 Quản lý cấu hình AI riêng cho tài khoản của bạn.
               </DialogDescription>
             </DialogHeader>
-            {open ? <AiProviderSettingsPanel /> : null}
+            {open ? (
+              <Suspense fallback={<ProviderSettingsSkeleton />}>
+                <AiProviderSettingsPanel />
+              </Suspense>
+            ) : null}
           </main>
         </div>
       </DialogContent>

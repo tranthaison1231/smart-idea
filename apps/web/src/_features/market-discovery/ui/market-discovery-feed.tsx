@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -18,7 +18,20 @@ import type { MarketDiscoveryFeed as MarketDiscoveryFeedData, MarketDiscoveryOpp
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { OpportunityDetailDialog } from "./opportunity-detail-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const OpportunityDetailDialog = lazy(() =>
+  import("./opportunity-detail-dialog").then((module) => ({
+    default: module.OpportunityDetailDialog,
+  })),
+);
 
 const emptyFeed: MarketDiscoveryFeedData = { history: [] };
 const confidenceLabels = { low: "Độ tin cậy thấp", medium: "Độ tin cậy trung bình", high: "Độ tin cậy cao" } as const;
@@ -112,7 +125,7 @@ function OpportunityCard({
   isSaving: boolean;
 }) {
   return (
-    <Card className="h-full border-border/80 bg-card/80">
+    <Card className="h-full min-w-0 border-border/80 bg-card/80">
       <CardHeader className="gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={opportunity.confidence === "high" ? "default" : "outline"}>
@@ -133,7 +146,11 @@ function OpportunityCard({
           <p className="line-clamp-3 text-sm leading-5 text-muted-foreground">{opportunity.solution}</p>
         </div>
         <div className="flex min-h-6 flex-wrap gap-1.5">
-          {opportunity.revenueModels.map((model) => <Badge key={model} variant="outline">{model}</Badge>)}
+          {opportunity.revenueModels.map((model) => (
+            <Badge className="h-auto max-w-full whitespace-normal break-words py-1 text-left" key={model} variant="outline">
+              {model}
+            </Badge>
+          ))}
         </div>
         <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-3">
           <Button onClick={() => onDetails(opportunity)} size="sm" variant="ghost">
@@ -149,6 +166,42 @@ function OpportunityCard({
               Lưu thành ý tưởng
             </Button>
           )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OpportunityCardSkeleton() {
+  return (
+    <Card aria-hidden="true" className="h-full min-w-0 border-border/80 bg-card/80">
+      <CardHeader className="gap-3">
+        <div className="flex gap-2">
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="h-5 w-16" />
+        </div>
+        <Skeleton className="h-5 w-4/5" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-2/3" />
+      </CardHeader>
+      <CardContent className="grid flex-1 gap-4">
+        <div className="grid gap-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-4/5" />
+        </div>
+        <div className="grid gap-2">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-6 w-24" />
+        </div>
+        <div className="mt-auto flex justify-between border-t border-border/70 pt-3">
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-8 w-36" />
         </div>
       </CardContent>
     </Card>
@@ -308,7 +361,10 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
       ) : null}
 
       {loading || (history.length === 0 && refreshing) ? (
-        <Card className="min-h-48 animate-pulse border-border/70 bg-card/50" aria-label="Đang tải lịch sử khám phá" />
+        <div aria-busy="true" className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3" role="status">
+          <span className="sr-only">Đang tải lịch sử khám phá...</span>
+          {Array.from({ length: 3 }, (_, index) => <OpportunityCardSkeleton key={index} />)}
+        </div>
       ) : history.length === 0 && !refreshing ? (
         <Card className="items-center border-border/80 bg-card/60 px-6 py-12 text-center">
           <span className="mb-3 grid size-11 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
@@ -328,7 +384,7 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
                 {run.stale ? <Badge variant="outline">Nguồn cũ · {formatDate(run.marketDate)}</Badge> : <Badge variant="secondary">{run.opportunities.length} cơ hội</Badge>}
                 <span className="text-xs text-muted-foreground">{run.fetchedAt ? `Nguồn cập nhật ${new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(run.fetchedAt))}` : ""}</span>
               </div>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
                 {run.opportunities.map((opportunity) => (
                   <OpportunityCard
                     isSaving={savingId === opportunity.id}
@@ -352,11 +408,35 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
         </div>
       )}
 
-      <OpportunityDetailDialog
-        onOpenChange={(open) => { if (!open) setSelected(null); }}
-        open={Boolean(selected)}
-        opportunity={selected}
-      />
+      {selected ? (
+        <Suspense
+          fallback={(
+            <Dialog open onOpenChange={(open) => { if (!open) setSelected(null); }}>
+              <DialogContent aria-busy="true" className="max-w-2xl" showCloseButton={false}>
+                <DialogHeader>
+                  <DialogTitle>Đang tải chi tiết cơ hội</DialogTitle>
+                  <DialogDescription>Đang chuẩn bị thông tin và nguồn tham khảo.</DialogDescription>
+                </DialogHeader>
+                <div aria-hidden="true" className="grid gap-5">
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <div className="grid gap-2" key={index}>
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-4/5" />
+                    </div>
+                  ))}
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+        >
+          <OpportunityDetailDialog
+            onOpenChange={(open) => { if (!open) setSelected(null); }}
+            open
+            opportunity={selected}
+          />
+        </Suspense>
+      ) : null}
     </section>
   );
 }

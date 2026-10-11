@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LoaderCircle, LogOut } from "lucide-react";
 
 import type { AuthUser } from "../model/auth";
 import { authClient } from "../client/auth-client";
@@ -56,16 +56,21 @@ export function SidebarAuth({
           </span>
         </button>
         <Button
-          aria-label="Đăng xuất"
+          aria-busy={pending}
+          aria-label={pending ? "Đang đăng xuất" : "Đăng xuất"}
           className="sidebar-auth-icon-button"
           disabled={pending}
           onClick={() => void signOut()}
-          title="Đăng xuất"
+          title={pending ? "Đang đăng xuất" : "Đăng xuất"}
           type="button"
           size="icon"
           variant="ghost"
         >
-          <LogOut aria-hidden="true" size={17} />
+          {pending ? (
+            <LoaderCircle aria-hidden="true" className="is-spinning" size={17} />
+          ) : (
+            <LogOut aria-hidden="true" size={17} />
+          )}
         </Button>
       </div>
       {error ? (
