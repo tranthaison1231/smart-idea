@@ -2,7 +2,6 @@ import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, lt } from "drizzle-orm";
-import { createRemoteJWKSet, jwtVerify } from "jose";
 
 import {
   aiProviders,
@@ -13,13 +12,24 @@ import {
 import { decryptCredential, encryptCredential, isCredentialEncryptionConfigured } from "./credential-cipher";
 
 const OPENAI_ISSUER = "https://auth.openai.com";
-const AUTHORIZATION_ENDPOINT = `${OPENAI_ISSUER}/api/accounts/authorize`;
-const TOKEN_ENDPOINT = `${OPENAI_ISSUER}/api/accounts/oauth/token`;
-const OIDC_CONFIGURATION_URL = `${OPENAI_ISSUER}/.well-known/openid-configuration`;
-const RESOURCE = "https://api.openai.com/v1";
+const AUTHORIZATION_ENDPOINT = `${OPENAI_ISSUER}/oauth/authorize`;
+const TOKEN_ENDPOINT = `${OPENAI_ISSUER}/oauth/token`;
+const OPENAI_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+const OPENAI_OAUTH_SCOPES = "openid profile email offline_access api.connectors.read api.connectors.invoke";
+const OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
+const OPENAI_CODEX_MODELS = [
+  "gpt-5-codex",
+  "gpt-5.1-codex",
+  "gpt-5.2-codex",
+  "gpt-6.1-sol",
+  "gpt-6-luna",
+  "gpt-5.6-terra",
+  "gpt-5",
+] as const;
 const CALLBACK_PATH = "/api/ai-assistant/openai/callback";
-const DEFAULT_REDIRECT_URI = `http://127.0.0.1:3001${CALLBACK_PATH}`;
-const HOST_ID_PATTERN = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CODEX_CALLBACK_PATH = "/auth/callback";
+const DEFAULT_REDIRECT_URI = `http://localhost:1455${CODEX_CALLBACK_PATH}`;
+const DEFAULT_HOST_ID = "smart-stock";
 
 export class OpenAiOAuthError extends Error {
   constructor(
@@ -28,12 +38,6 @@ export class OpenAiOAuthError extends Error {
   ) {
     super(code);
   }
-}
-
-interface OpenAiOidcConfiguration {
-  issuer: string;
-  jwks_uri: string;
-  revocation_endpoint: string;
 }
 
 interface OAuthTokenResponse {
@@ -51,14 +55,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function hostId() {
-  const value = process.env.OPENAI_OAUTH_HOST_ID?.trim();
-  if (!value || !HOST_ID_PATTERN.test(value)) {
-    throw new OpenAiOAuthError("oauth_host_id_not_configured", 503);
-  }
-  return value;
-}
-
 function redirectUri() {
   if (process.env.NODE_ENV === "production") {
     throw new OpenAiOAuthError("oauth_local_only", 503);
@@ -66,10 +62,13 @@ function redirectUri() {
   const value = process.env.OPENAI_OAUTH_REDIRECT_URI?.trim() || DEFAULT_REDIRECT_URI;
   try {
     const url = new URL(value);
+    const isCodexCallback =
+      url.pathname === CODEX_CALLBACK_PATH && [1455, 1457].includes(Number(url.port));
+    const isAppCallback = url.pathname === CALLBACK_PATH;
     if (
       url.protocol !== "http:" ||
-      url.hostname !== "127.0.0.1" ||
-      url.pathname !== CALLBACK_PATH ||
+      !["localhost", "127.0.0.1"].includes(url.hostname) ||
+      (!isCodexCallback && !isAppCallback) ||
       url.username ||
       url.password ||
       url.search ||
@@ -81,6 +80,20 @@ function redirectUri() {
   } catch {
     throw new OpenAiOAuthError("oauth_redirect_not_configured", 503);
   }
+}
+
+export function isOpenAiOAuthCallbackUrl(url: URL) {
+  const isCodexCallback =
+    url.pathname === CODEX_CALLBACK_PATH && [1455, 1457].includes(Number(url.port));
+  const isAppCallback = url.pathname === CALLBACK_PATH;
+  return (
+    url.protocol === "http:" &&
+    ["localhost", "127.0.0.1"].includes(url.hostname) &&
+    (isCodexCallback || isAppCallback) &&
+    !url.username &&
+    !url.password &&
+    !url.hash
+  );
 }
 
 export function getOpenAiOAuthAppOrigin() {
@@ -134,89 +147,6 @@ async function requestToken(fields: Record<string, string>) {
   return parseTokenResponse(await response.json().catch(() => null));
 }
 
-async function oidcConfiguration(): Promise<OpenAiOidcConfiguration> {
-  let response: Response;
-  try {
-    response = await fetch(OIDC_CONFIGURATION_URL, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch {
-    throw new OpenAiOAuthError("oauth_configuration_failed", 502);
-  }
-  const body = asRecord(await response.json().catch(() => null));
-  if (
-    !response.ok ||
-    body?.issuer !== OPENAI_ISSUER ||
-    typeof body.jwks_uri !== "string" ||
-    typeof body.revocation_endpoint !== "string"
-  ) {
-    throw new OpenAiOAuthError("oauth_configuration_failed", 502);
-  }
-  try {
-    const jwks = new URL(body.jwks_uri);
-    const revocation = new URL(body.revocation_endpoint);
-    if (jwks.origin !== OPENAI_ISSUER || revocation.origin !== OPENAI_ISSUER) throw new Error("Invalid endpoint");
-  } catch {
-    throw new OpenAiOAuthError("oauth_configuration_failed", 502);
-  }
-  return body as unknown as OpenAiOidcConfiguration;
-}
-
-let remoteJwks: { uri: string; keys: ReturnType<typeof createRemoteJWKSet> } | undefined;
-
-async function verifyIdToken(idToken: string, clientId: string, nonce: string) {
-  try {
-    const config = await oidcConfiguration();
-    if (!remoteJwks || remoteJwks.uri !== config.jwks_uri) {
-      remoteJwks = {
-        uri: config.jwks_uri,
-        keys: createRemoteJWKSet(new URL(config.jwks_uri)),
-      };
-    }
-    const { payload } = await jwtVerify(idToken, remoteJwks.keys, {
-      issuer: config.issuer,
-      audience: clientId,
-      algorithms: ["RS256", "ES256", "PS256"],
-      clockTolerance: 30,
-      requiredClaims: ["sub", "nonce"],
-    });
-    if (typeof payload.sub !== "string" || !payload.sub || payload.nonce !== nonce) {
-      throw new Error("ID token claims did not match the authorization attempt");
-    }
-    return {
-      subject: payload.sub,
-      email: typeof payload.email === "string" ? payload.email : null,
-    };
-  } catch (error) {
-    if (error instanceof OpenAiOAuthError) throw error;
-    throw new OpenAiOAuthError("oauth_id_token_invalid", 400);
-  }
-}
-
-async function listModels(accessToken: string) {
-  let response: Response;
-  try {
-    response = await fetch(`${RESOURCE}/models`, {
-      headers: { authorization: `Bearer ${accessToken}` },
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch {
-    throw new OpenAiOAuthError("oauth_models_unavailable", 502);
-  }
-  const body = asRecord(await response.json().catch(() => null));
-  const candidates = Array.isArray(body?.models) ? body.models : [];
-  const models = [...new Set(candidates.flatMap((candidate) => {
-    const model = asRecord(candidate);
-    return model?.visibility === "list" && typeof model.slug === "string" && model.slug.trim()
-      ? [model.slug.trim()]
-      : [];
-  }))].slice(0, 100);
-  if (!response.ok || !models.length) throw new OpenAiOAuthError("oauth_models_unavailable", 502);
-  return models;
-}
-
 export function getOpenAiOAuthCallbackMessage(params: URLSearchParams) {
   const state = params.get("state");
   if (!state || state.length > 256) {
@@ -249,9 +179,8 @@ export async function startOpenAiOAuth(ownerId: string) {
     .from(openaiOAuthAccounts)
     .where(eq(openaiOAuthAccounts.ownerId, ownerId))
     .limit(1);
-  const clientId = account?.clientId ?? "dynamic_agent_client";
-  const activeHostId = account?.hostId ?? hostId();
-  const idTokenHint = account?.idTokenCiphertext ? decryptCredential(account.idTokenCiphertext) : null;
+  const clientId = OPENAI_OAUTH_CLIENT_ID;
+  const activeHostId = account?.hostId ?? DEFAULT_HOST_ID;
   const state = randomBytes(32).toString("base64url");
   const verifier = randomBytes(48).toString("base64url");
   const nonce = randomBytes(32).toString("base64url");
@@ -264,7 +193,7 @@ export async function startOpenAiOAuth(ownerId: string) {
       stateHash: stateHash(state),
       ownerId,
       clientId,
-      expectedSubject: account?.subject ?? null,
+      expectedSubject: null,
       hostId: activeHostId,
       codeVerifierCiphertext: encryptCredential(verifier),
       nonce,
@@ -278,21 +207,13 @@ export async function startOpenAiOAuth(ownerId: string) {
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("redirect_uri", callbackUri);
-  url.searchParams.set("scope", "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct");
-  url.searchParams.set("resource", RESOURCE);
+  url.searchParams.set("scope", OPENAI_OAUTH_SCOPES);
   url.searchParams.set("state", state);
-  url.searchParams.set("nonce", nonce);
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("code_challenge", challenge);
-  url.searchParams.set("ext_agent_host_id", activeHostId);
-  if (idTokenHint) {
-    url.searchParams.set("id_token_hint", idTokenHint);
-  }
-  if (account) {
-    if (account.email) url.searchParams.set("login_hint", account.email);
-  } else {
-    url.searchParams.set("agent_name_hint", "Smart Idea");
-  }
+  url.searchParams.set("codex_cli_simplified_flow", "true");
+  url.searchParams.set("id_token_add_organizations", "true");
+  url.searchParams.set("originator", "pi");
 
   return { authUrl: url.toString(), callbackOrigin: new URL(callbackUri).origin };
 }
@@ -334,13 +255,8 @@ export async function completeOpenAiOAuth(ownerId: string, value: unknown) {
       return { error: error as string };
     }
 
-    let issuedClientId = transaction.clientId;
-    if (transaction.clientId === "dynamic_agent_client") {
-      if (!callbackClientId || !/^oaiapp_[A-Za-z0-9_-]{1,240}$/.test(callbackClientId)) {
-        throw new OpenAiOAuthError("oauth_client_mismatch", 400);
-      }
-      issuedClientId = callbackClientId;
-    } else if (callbackClientId && callbackClientId !== transaction.clientId) {
+    const issuedClientId = transaction.clientId;
+    if (callbackClientId && callbackClientId !== transaction.clientId) {
       throw new OpenAiOAuthError("oauth_client_mismatch", 400);
     }
 
@@ -350,50 +266,34 @@ export async function completeOpenAiOAuth(ownerId: string, value: unknown) {
       code: code!,
       code_verifier: decryptCredential(transaction.codeVerifierCiphertext),
       redirect_uri: transaction.redirectUri,
-      resource: RESOURCE,
     });
-    if (!tokens.refresh_token || !tokens.id_token || !tokens.scope) {
+    if (!tokens.refresh_token) {
       throw new OpenAiOAuthError("oauth_token_exchange_failed", 502);
     }
-    const scopes = tokens.scope.split(/\s+/).filter(Boolean);
-    if (!scopes.includes("chatgpt.tokens.use.direct") || !scopes.includes("resource.invoke")) {
-      throw new OpenAiOAuthError("oauth_scope_missing", 403);
-    }
-    const identity = await verifyIdToken(tokens.id_token, issuedClientId, transaction.nonce);
-    if (transaction.expectedSubject && transaction.expectedSubject !== identity.subject) {
-      throw new OpenAiOAuthError("oauth_account_changed", 409);
-    }
-    const models = await listModels(tokens.access_token);
+    const scopes = tokens.scope?.split(/\s+/).filter(Boolean) ?? OPENAI_OAUTH_SCOPES.split(" ");
+    const models = [...OPENAI_CODEX_MODELS];
     const [account] = await tx
       .select()
       .from(openaiOAuthAccounts)
       .where(eq(openaiOAuthAccounts.ownerId, ownerId))
       .for("update")
       .limit(1);
-    if (
-      (transaction.expectedSubject && account?.subject !== transaction.expectedSubject) ||
-      (!transaction.expectedSubject && account && account.subject !== identity.subject) ||
-      (transaction.expectedSubject && identity.subject !== transaction.expectedSubject)
-    ) {
-      throw new OpenAiOAuthError("oauth_account_changed", 409);
-    }
-
     const [provider] = await tx
       .select({ id: aiProviders.id, model: aiProviders.model })
       .from(aiProviders)
       .where(and(eq(aiProviders.ownerId, ownerId), eq(aiProviders.providerType, "oauth")))
       .for("update")
       .limit(1);
-    const model = provider && models.includes(provider.model) ? provider.model : models[0];
+    const model = provider && models.includes(provider.model as (typeof OPENAI_CODEX_MODELS)[number]) ? provider.model : models[0];
     const now = new Date();
     const tokenFields = {
       clientId: issuedClientId,
       hostId: transaction.hostId,
-      subject: identity.subject,
-      email: identity.email,
+      subject: account?.subject ?? ownerId,
+      email: account?.email ?? null,
       accessTokenCiphertext: encryptCredential(tokens.access_token),
       refreshTokenCiphertext: encryptCredential(tokens.refresh_token),
-      idTokenCiphertext: encryptCredential(tokens.id_token),
+      idTokenCiphertext: null,
       scopes,
       expiresAt: new Date(now.getTime() + tokens.expires_in * 1000),
       updatedAt: now,
@@ -408,7 +308,7 @@ export async function completeOpenAiOAuth(ownerId: string, value: unknown) {
         .update(aiProviders)
         .set({
           name: "ChatGPT Subscription",
-          baseUrl: RESOURCE,
+          baseUrl: OPENAI_CODEX_BASE_URL,
           apiKeyCiphertext: null,
           models,
           model,
@@ -420,7 +320,7 @@ export async function completeOpenAiOAuth(ownerId: string, value: unknown) {
         ownerId,
         name: "ChatGPT Subscription",
         providerType: "oauth",
-        baseUrl: RESOURCE,
+        baseUrl: OPENAI_CODEX_BASE_URL,
         apiKeyCiphertext: null,
         models,
         model,
@@ -443,7 +343,8 @@ export async function getValidOpenAiAccessToken(ownerId: string) {
       .where(eq(openaiOAuthAccounts.ownerId, ownerId))
       .for("update")
       .limit(1);
-    if (!account?.accessTokenCiphertext || !account.refreshTokenCiphertext || !account.expiresAt) return null;
+    if (account?.clientId !== OPENAI_OAUTH_CLIENT_ID) return null;
+    if (!account.accessTokenCiphertext || !account.refreshTokenCiphertext || !account.expiresAt) return null;
     if (account.expiresAt.getTime() > Date.now() + 5 * 60 * 1000) {
       return decryptCredential(account.accessTokenCiphertext);
     }
@@ -451,15 +352,11 @@ export async function getValidOpenAiAccessToken(ownerId: string) {
     const refreshToken = decryptCredential(account.refreshTokenCiphertext);
     const tokens = await requestToken({
       grant_type: "refresh_token",
-      client_id: account.clientId,
+      client_id: OPENAI_OAUTH_CLIENT_ID,
       refresh_token: refreshToken,
-      resource: RESOURCE,
     });
     if (tokens.scope) {
       const scopes = tokens.scope.split(/\s+/).filter(Boolean);
-      if (!scopes.includes("chatgpt.tokens.use.direct") || !scopes.includes("resource.invoke")) {
-        throw new OpenAiOAuthError("oauth_scope_missing", 403);
-      }
       account.scopes = scopes;
     }
     await tx
@@ -477,54 +374,10 @@ export async function getValidOpenAiAccessToken(ownerId: string) {
 }
 
 export async function disconnectOpenAiOAuth(ownerId: string) {
-  const db = getDb();
-  const account = await db.transaction(async (tx) => {
+  await getDb().transaction(async (tx) => {
     await tx.delete(openaiOAuthTransactions).where(eq(openaiOAuthTransactions.ownerId, ownerId));
-    const [account] = await tx
-      .select()
-      .from(openaiOAuthAccounts)
-      .where(eq(openaiOAuthAccounts.ownerId, ownerId))
-      .for("update")
-      .limit(1);
     await tx.delete(aiProviders).where(and(eq(aiProviders.ownerId, ownerId), eq(aiProviders.providerType, "oauth")));
-    if (account) {
-      await tx
-        .update(openaiOAuthAccounts)
-        .set({
-          accessTokenCiphertext: null,
-          refreshTokenCiphertext: null,
-          idTokenCiphertext: null,
-          expiresAt: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(openaiOAuthAccounts.ownerId, ownerId));
-    }
-    return account?.refreshTokenCiphertext
-      ? { clientId: account.clientId, refreshTokenCiphertext: account.refreshTokenCiphertext }
-      : null;
+    await tx.delete(openaiOAuthAccounts).where(eq(openaiOAuthAccounts.ownerId, ownerId));
   });
-  let remoteRevocationConfirmed = !account;
-  if (account) {
-    try {
-      const [config, refreshToken] = await Promise.all([
-        oidcConfiguration(),
-        Promise.resolve(decryptCredential(account.refreshTokenCiphertext)),
-      ]);
-      const response = await fetch(config.revocation_endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          token: refreshToken,
-          token_type_hint: "refresh_token",
-          client_id: account.clientId,
-        }),
-        cache: "no-store",
-        signal: AbortSignal.timeout(10_000),
-      });
-      remoteRevocationConfirmed = response.status === 200;
-    } catch {
-      remoteRevocationConfirmed = false;
-    }
-  }
-  return { remoteRevocationConfirmed };
+  return { remoteRevocationConfirmed: false };
 }

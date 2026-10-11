@@ -15,6 +15,7 @@ export {
   getOpenAiOAuthCallbackMessage,
   getOpenAiOAuthAppOrigin,
   getValidOpenAiAccessToken,
+  isOpenAiOAuthCallbackUrl,
   OpenAiOAuthError,
   startOpenAiOAuth,
 } from "./server/openai-oauth";

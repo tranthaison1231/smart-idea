@@ -40,7 +40,6 @@ export class MarketDiscoveryError extends Error {
   constructor(
     readonly code: string,
     readonly status = 500,
-    readonly retryAt?: Date,
   ) {
     super(code);
   }

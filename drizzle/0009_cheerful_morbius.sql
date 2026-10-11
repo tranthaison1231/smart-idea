@@ -1,0 +1,1 @@
+ALTER TABLE "market_discovery_preferences" ADD COLUMN "hidden_tags" jsonb DEFAULT '{"markets":[],"topics":[],"revenueModels":[],"customerSegments":[]}'::jsonb NOT NULL;

@@ -11,6 +11,7 @@ import {
   ExternalLink,
   LoaderCircle,
   RefreshCw,
+  SlidersHorizontal,
   Sparkles,
 } from "lucide-react";
 
@@ -33,6 +34,12 @@ const OpportunityDetailDialog = lazy(() =>
   })),
 );
 
+const MarketDiscoverySettingsDialog = lazy(() =>
+  import("./market-discovery-settings-dialog").then((module) => ({
+    default: module.MarketDiscoverySettingsDialog,
+  })),
+);
+
 const emptyFeed: MarketDiscoveryFeedData = { history: [] };
 const confidenceLabels = { low: "Độ tin cậy thấp", medium: "Độ tin cậy trung bình", high: "Độ tin cậy cao" } as const;
 const errorMessages: Record<string, string> = {
@@ -47,7 +54,6 @@ const errorMessages: Record<string, string> = {
   tavily_not_configured: "Nguồn tìm kiếm chưa được cấu hình. Quản trị viên cần thêm TAVILY_API_KEY cho ứng dụng.",
   source_search_failed: "Chưa lấy được nguồn thị trường. Lịch sử cũ của bạn vẫn được giữ.",
   no_market_evidence: "Snapshot hiện tại chưa có nguồn bằng chứng đủ dùng.",
-  refresh_cooldown: "Bạn vừa làm mới gần đây. Hãy chờ đủ một giờ để tìm nguồn mới.",
   processing_timeout: "Quá trình khám phá vẫn đang chạy. Hãy tải lại sau ít phút.",
 };
 
@@ -215,9 +221,9 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
   const [refreshing, setRefreshing] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [retryAt, setRetryAt] = useState<string | null>(null);
   const [selected, setSelected] = useState<MarketDiscoveryOpportunity | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const storageKey = `smart-idea:market-discovery:${userId}`;
 
   const loadFeed = useCallback(async () => {
@@ -234,7 +240,6 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
     setRefreshing(true);
     setProcessing(false);
     setError(null);
-    setRetryAt(null);
     try {
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const response = await fetch("/api/market-discovery/refresh", {
@@ -247,8 +252,6 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
         if (!response.ok) {
           const code = typeof body?.error === "string" ? body.error : "discovery_failed";
           setError(code);
-          if (typeof body?.retryAt === "string") setRetryAt(body.retryAt);
-          if (code === "refresh_cooldown") await loadFeed();
           return;
         }
         if (response.status === 202 || body?.state === "processing") {
@@ -283,7 +286,7 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
       setRefreshing(false);
       setProcessing(false);
     }
-  }, [loadFeed, storageKey]);
+  }, [storageKey]);
 
   useEffect(() => {
     let active = true;
@@ -336,10 +339,15 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
           <p className="text-sm font-semibold">Cơ hội có bằng chứng</p>
           <p className="mt-1 text-sm text-muted-foreground">Tổng hợp từ nguồn công khai và provider AI bạn đã bật.</p>
         </div>
-        <Button disabled={refreshing} onClick={() => void refresh(true)}>
-          {refreshing ? <LoaderCircle aria-hidden="true" className="animate-spin" /> : <RefreshCw aria-hidden="true" />}
-          {refreshing ? "Đang tìm kiếm" : "Làm mới nguồn"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => setSettingsOpen(true)} variant="outline">
+            <SlidersHorizontal aria-hidden="true" /> Cấu hình khám phá
+          </Button>
+          <Button disabled={refreshing} onClick={() => void refresh(true)}>
+            {refreshing ? <LoaderCircle aria-hidden="true" className="animate-spin" /> : <RefreshCw aria-hidden="true" />}
+            {refreshing ? "Đang tìm kiếm" : "Làm mới nguồn"}
+          </Button>
+        </div>
       </div>
 
       {processing ? (
@@ -354,7 +362,6 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
             <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0 text-amber-400" size={18} />
             <div className="grid gap-1">
               <p className="text-sm font-medium">{opportunityError(new Error(error))}</p>
-              {retryAt ? <p className="text-xs text-muted-foreground">Có thể làm mới lại sau {new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(retryAt))}.</p> : null}
             </div>
           </CardContent>
         </Card>
@@ -435,6 +442,27 @@ export function MarketDiscoveryFeed({ userId }: { userId: string }) {
             open
             opportunity={selected}
           />
+        </Suspense>
+      ) : null}
+
+      {settingsOpen ? (
+        <Suspense fallback={(
+          <Dialog onOpenChange={setSettingsOpen} open>
+            <DialogContent aria-busy="true" className="max-h-[calc(100dvh-2rem)] max-w-2xl sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Cấu hình khám phá</DialogTitle>
+                <DialogDescription>Đang tải phần cài đặt...</DialogDescription>
+              </DialogHeader>
+              <div aria-hidden="true" className="grid gap-4 py-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-8 w-3/4" />
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}>
+          <MarketDiscoverySettingsDialog onOpenChange={setSettingsOpen} open />
         </Suspense>
       ) : null}
     </section>

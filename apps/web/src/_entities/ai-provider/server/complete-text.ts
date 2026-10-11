@@ -10,8 +10,8 @@ import type { AiProviderForInference } from "./provider-repository";
 
 const RESPONSE_LIMIT = 160_000;
 const OAUTH_STREAM_LIMIT = 1_000_000;
-const REQUEST_TIMEOUT_MS = 45_000;
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const REQUEST_TIMEOUT_MS = 120_000;
+const OPENAI_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 
 type AiCompletionDiagnostic = {
   stage: "dns" | "request" | "response" | "http";
@@ -38,6 +38,7 @@ interface CompleteTextInput {
   systemPrompt: string;
   userPrompt: string;
   maxOutputTokens: number;
+  responseFormat?: "json_object";
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -280,6 +281,7 @@ async function postConfiguredProvider(url: URL, apiKey: string, body: string) {
 }
 
 async function postOAuthProvider(url: URL, accessToken: string, body: string) {
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(url, {
@@ -287,13 +289,17 @@ async function postOAuthProvider(url: URL, accessToken: string, body: string) {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
+        "OpenAI-Beta": "responses=v1",
       },
       body,
       cache: "no-store",
       redirect: "error",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: timeoutSignal,
     });
   } catch (error) {
+    if (timeoutSignal.aborted) {
+      throw new AiCompletionError("provider_unavailable", { stage: "request", failure: "timeout" });
+    }
     throw new AiCompletionError("provider_unavailable", {
       stage: "request",
       failure: error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network",
@@ -331,6 +337,15 @@ async function postOAuthProvider(url: URL, accessToken: string, body: string) {
     }
   } catch (error) {
     if (error instanceof AiCompletionError) throw error;
+    if (timeoutSignal.aborted) {
+      throw new AiCompletionError("provider_unavailable", {
+        stage: "response",
+        failure: "timeout",
+        status: response.status,
+        requestId,
+        responseBytes: size,
+      });
+    }
     throw new AiCompletionError("provider_unavailable", { stage: "response", failure: "stream" });
   }
   const text = Buffer.concat(chunks).toString("utf8");
@@ -382,9 +397,9 @@ export async function completeTextWithProvider(
       model: provider.model,
       instructions: input.systemPrompt,
       input: [{ role: "user", content: input.userPrompt }],
-      max_output_tokens: input.maxOutputTokens,
       store: false,
       stream: true,
+      ...(input.responseFormat ? { text: { format: { type: input.responseFormat } } } : {}),
     });
     const response = await postOAuthProvider(new URL(OPENAI_RESPONSES_URL), provider.accessToken, body);
     if (response.status < 200 || response.status >= 300) {

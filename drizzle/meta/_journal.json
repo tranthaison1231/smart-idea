@@ -57,6 +57,20 @@
       "when": 1791695110227,
       "tag": "0007_fearless_champions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791700266886,
+      "tag": "0008_solid_multiple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791701381297,
+      "tag": "0009_cheerful_morbius",
+      "breakpoints": true
     }
   ]
 }

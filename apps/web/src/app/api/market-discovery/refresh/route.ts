@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     return json(result, result.state === "processing" ? 202 : 200);
   } catch (error) {
     if (error instanceof MarketDiscoveryError) {
-      return json({ error: error.code, ...(error.retryAt ? { retryAt: error.retryAt.toISOString() } : {}) }, error.status);
+      return json({ error: error.code }, error.status);
     }
     return json({ error: "discovery_failed" }, 500);
   }

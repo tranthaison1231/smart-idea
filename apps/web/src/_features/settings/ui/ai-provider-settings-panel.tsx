@@ -90,12 +90,10 @@ function errorMessage(code: unknown) {
       return "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi thử tiếp.";
     case "credentials_not_configured":
       return "Máy chủ chưa cấu hình khóa mã hóa AI_CREDENTIALS_ENCRYPTION_KEY.";
-    case "oauth_host_id_not_configured":
-      return "Máy chủ chưa cấu hình OPENAI_OAUTH_HOST_ID ổn định cho cài đặt này.";
     case "oauth_local_only":
       return "ChatGPT Subscription OAuth hiện chỉ hoạt động với ứng dụng chạy local.";
     case "oauth_redirect_not_configured":
-      return "Callback OAuth cần chạy tại 127.0.0.1:3001.";
+      return "Callback OAuth cần chạy tại localhost:1455/auth/callback.";
     case "oauth_access_denied":
       return "Bạn đã hủy cấp quyền ChatGPT.";
     case "oauth_transaction_invalid":
@@ -201,6 +199,9 @@ export function AiProviderSettingsPanel() {
   const [newModel, setNewModel] = useState("");
   const [saving, setSaving] = useState(false);
   const [connectingOpenAi, setConnectingOpenAi] = useState(false);
+  const [manualCallbackUrl, setManualCallbackUrl] = useState("");
+  const [manualCallbackAvailable, setManualCallbackAvailable] = useState(false);
+  const [manualCallbackLoading, setManualCallbackLoading] = useState(false);
   const [pendingProviderId, setPendingProviderId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AiProviderView | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -270,6 +271,7 @@ export function AiProviderSettingsPanel() {
     }
 
     setConnectingOpenAi(true);
+    let keepPopupOpen = false;
     try {
       const response = await fetch("/api/ai-assistant/openai/start", {
         method: "POST",
@@ -281,10 +283,22 @@ export function AiProviderSettingsPanel() {
         authUrl: string;
         callbackOrigin: string;
       }>(response);
-      const expectedState = new URL(authUrl).searchParams.get("state");
+      const authUrlObject = new URL(authUrl);
+      const expectedState = authUrlObject.searchParams.get("state");
       if (!expectedState) throw new Error("Không nhận được trạng thái OAuth hợp lệ. Hãy thử lại.");
+      const redirectUrl = authUrlObject.searchParams.get("redirect_uri");
+      const manualCallback = redirectUrl ? new URL(redirectUrl).pathname === "/auth/callback" : false;
+      setManualCallbackAvailable(manualCallback);
+      setManualCallbackUrl("");
       popup.location.href = authUrl;
       popup.focus();
+      if (manualCallback) {
+        keepPopupOpen = true;
+        toast.info("Đã mở trang đăng nhập OpenAI", {
+          description: "Sau khi cấp quyền, hãy dán URL callback localhost:1455 vào ô bên dưới.",
+        });
+        return;
+      }
       const result = await waitForOAuthPopup(popup, callbackOrigin);
       if (result.outcome === "error") throw new Error(errorMessage(result.error));
       if (result.outcome === "closed") throw new Error("Cửa sổ đăng nhập đã được đóng trước khi kết nối hoàn tất.");
@@ -314,8 +328,36 @@ export function AiProviderSettingsPanel() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Không thể kết nối ChatGPT.");
     } finally {
-      popup.close();
+      if (!keepPopupOpen) popup.close();
       setConnectingOpenAi(false);
+    }
+  }
+
+  async function submitManualCallback() {
+    if (!manualCallbackUrl.trim()) return;
+    setManualCallbackLoading(true);
+    try {
+      await readResponse<{ connected: boolean }>(await fetch("/api/ai-assistant/openai/callback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ redirectUrl: manualCallbackUrl.trim() }),
+        cache: "no-store",
+      }));
+      const status = await readResponse<{ authenticated: boolean }>(await fetch("/api/ai-assistant/openai/status", { cache: "no-store" }));
+      if (!status.authenticated) throw new Error("Không xác nhận được kết nối ChatGPT. Hãy thử lại.");
+      const body = await fetchProviderList();
+      setProviders(body.providers);
+      setCredentialsReady(body.credentialsReady);
+      setManualCallbackAvailable(false);
+      setManualCallbackUrl("");
+      setDraft(null);
+      toast.success("Đã kết nối ChatGPT Subscription", {
+        description: "Tài khoản đã được liên kết an toàn với workspace của bạn.",
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể hoàn tất kết nối ChatGPT.");
+    } finally {
+      setManualCallbackLoading(false);
     }
   }
 
@@ -435,6 +477,31 @@ export function AiProviderSettingsPanel() {
     const models = draft.models.filter((model) => model !== value);
     setDraft({ ...draft, models, model: draft.model === value ? models[0] : draft.model });
   }
+
+  const manualCallbackForm = manualCallbackAvailable ? (
+    <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+      <Label htmlFor="openai-manual-callback">URL callback OpenAI</Label>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          autoComplete="off"
+          className="min-w-0 flex-1"
+          id="openai-manual-callback"
+          onChange={(event) => setManualCallbackUrl(event.target.value)}
+          placeholder="Dán URL http://localhost:1455/auth/callback?..."
+          value={manualCallbackUrl}
+        />
+        <Button
+          disabled={manualCallbackLoading || !manualCallbackUrl.trim()}
+          onClick={() => void submitManualCallback()}
+          type="button"
+        >
+          {manualCallbackLoading ? <LoaderCircle aria-hidden="true" className="animate-spin" /> : <Check aria-hidden="true" />}
+          {manualCallbackLoading ? "Đang xác nhận..." : "Hoàn tất kết nối"}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">Nếu trình duyệt không tự quay lại ứng dụng, hãy sao chép URL trên thanh địa chỉ sau khi OpenAI cấp quyền.</p>
+    </div>
+  ) : null;
 
   return (
     <section aria-labelledby="provider-ai-title" className="space-y-5">
@@ -828,6 +895,7 @@ export function AiProviderSettingsPanel() {
                       {saving ? "Đang lưu..." : "Lưu model"}
                     </Button>
                   </DialogFooter>
+                  {manualCallbackForm}
                 </div>
               ) : (
                 <div className="space-y-4 rounded-xl border bg-muted/10 p-5">
@@ -852,6 +920,7 @@ export function AiProviderSettingsPanel() {
                       {connectingOpenAi ? "Đang chờ OpenAI..." : "Đăng nhập với ChatGPT"}
                     </Button>
                   </div>
+                  {manualCallbackForm}
                 </div>
               )}
             </form>

@@ -23,6 +23,23 @@ export interface MarketSourceRecord {
   publishedAt: string | null;
 }
 
+export const marketDiscoveryPreferences = pgTable("market_discovery_preferences", {
+  ownerId: uuid("owner_id")
+    .primaryKey()
+    .references(() => appUsers.id, { onDelete: "cascade" }),
+  markets: text("markets").array().notNull().default(sql`ARRAY['Việt Nam']::text[]`),
+  topics: text("topics").array().notNull().default(sql`'{}'::text[]`),
+  revenueModels: text("revenue_models").array().notNull().default(sql`'{}'::text[]`),
+  customerSegments: text("customer_segments").array().notNull().default(sql`'{}'::text[]`),
+  hiddenTags: jsonb("hidden_tags").$type<{
+    markets: string[];
+    topics: string[];
+    revenueModels: string[];
+    customerSegments: string[];
+  }>().notNull().default(sql`'{"markets":[],"topics":[],"revenueModels":[],"customerSegments":[]}'::jsonb`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const marketDiscoverySnapshots = pgTable(
   "market_discovery_snapshots",
   {

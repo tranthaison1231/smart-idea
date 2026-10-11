@@ -5,9 +5,11 @@ import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import {
   getDb,
   marketDiscoveryOpportunities,
+  marketDiscoveryPreferences,
   marketDiscoveryRuns,
   marketDiscoverySnapshots,
 } from "@smart-idea/database/server";
+import type { MarketDiscoveryPreferences } from "../model/market-discovery-preferences";
 
 export const DISCOVERY_QUERY_VERSION = "vn-product-opportunities-v1";
 const SNAPSHOT_LEASE_MS = 2 * 60 * 1000;
@@ -27,6 +29,34 @@ export function vietnamMarketDate(now = new Date()) {
 }
 
 export const marketDiscoveryRepository = {
+  async findPreferences(ownerId: string) {
+    const [preferences] = await getDb()
+      .select()
+      .from(marketDiscoveryPreferences)
+      .where(eq(marketDiscoveryPreferences.ownerId, ownerId))
+      .limit(1);
+    return preferences ?? null;
+  },
+
+  async savePreferences(ownerId: string, preferences: MarketDiscoveryPreferences) {
+    const [saved] = await getDb()
+      .insert(marketDiscoveryPreferences)
+      .values({ ownerId, ...preferences, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: marketDiscoveryPreferences.ownerId,
+        set: { ...preferences, updatedAt: new Date() },
+      })
+      .returning({
+        markets: marketDiscoveryPreferences.markets,
+        topics: marketDiscoveryPreferences.topics,
+        revenueModels: marketDiscoveryPreferences.revenueModels,
+        customerSegments: marketDiscoveryPreferences.customerSegments,
+        hiddenTags: marketDiscoveryPreferences.hiddenTags,
+      });
+    if (!saved) throw new Error("Market discovery preferences save failed");
+    return saved;
+  },
+
   async findDailySnapshot(marketDate: string) {
     const [snapshot] = await getDb()
       .select()
@@ -92,24 +122,16 @@ export const marketDiscoveryRepository = {
         ))
         .orderBy(desc(marketDiscoverySnapshots.createdAt))
         .limit(1);
-      if (latest && latest.createdAt.getTime() > now.getTime() - 60 * 60 * 1000) {
-        if (latest.state === "failed" && latest.errorCode === "tavily_not_configured") {
-          const [retried] = await tx
-            .update(marketDiscoverySnapshots)
-            .set({ state: "pending", leaseExpiresAt: new Date(now.getTime() + SNAPSHOT_LEASE_MS), errorCode: null })
-            .where(eq(marketDiscoverySnapshots.id, latest.id))
-            .returning();
-          if (retried) return { snapshot: retried, claimed: true, retryAt: null };
-        }
-        if (latest.state === "pending" && (!latest.leaseExpiresAt || latest.leaseExpiresAt <= now)) {
+      if (latest?.state === "pending") {
+        if (!latest.leaseExpiresAt || latest.leaseExpiresAt <= now) {
           const [reclaimed] = await tx
             .update(marketDiscoverySnapshots)
             .set({ leaseExpiresAt: new Date(now.getTime() + SNAPSHOT_LEASE_MS), errorCode: null })
             .where(and(eq(marketDiscoverySnapshots.id, latest.id), eq(marketDiscoverySnapshots.state, "pending")))
             .returning();
-          if (reclaimed) return { snapshot: reclaimed, claimed: true, retryAt: new Date(latest.createdAt.getTime() + 60 * 60 * 1000) };
+          if (reclaimed) return { snapshot: reclaimed, claimed: true };
         }
-        return { snapshot: latest, claimed: false, retryAt: new Date(latest.createdAt.getTime() + 60 * 60 * 1000) };
+        return { snapshot: latest, claimed: false };
       }
 
       const [snapshot] = await tx
@@ -124,7 +146,7 @@ export const marketDiscoveryRepository = {
         })
         .returning();
       if (!snapshot) throw new Error("Manual market snapshot reservation failed");
-      return { snapshot, claimed: true, retryAt: null };
+      return { snapshot, claimed: true };
     });
   },
 
